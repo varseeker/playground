@@ -1,2 +1,3 @@
 console.log("Kenji");
-console.log('Astgfirullah');
+console.log("Aku tobat.");
+console.log("tapi ahsan belum tobat");
