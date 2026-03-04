@@ -6,6 +6,7 @@ const { Text } = Typography;
 
 type PrimitiveValue = string | number | boolean;
 type GenericObject = Record<string, unknown>;
+type StringKeyOf<T> = Extract<keyof T, string>;
 
 export interface ApprovalDetailSectionProps<T extends GenericObject> {
   data: T;
@@ -90,10 +91,12 @@ export function generateColumns<T extends GenericObject>(data: T[]): ColumnsType
     return [];
   }
 
-  return (Object.keys(firstRow) as Array<keyof T>).map((key) => ({
-    title: formatLabel(String(key)),
+  const keys = Object.keys(firstRow) as Array<StringKeyOf<T>>;
+
+  return keys.map((key): ColumnsType<T>[number] => ({
+    title: formatLabel(key),
     dataIndex: key,
-    key: String(key),
+    key,
     render: (value: unknown) => renderUnknownValue(value),
   }));
 }
