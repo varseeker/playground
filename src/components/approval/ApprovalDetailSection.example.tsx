@@ -13,14 +13,26 @@ const approvalResponseExampleOne: ApprovalApiResponse = {
 };
 
 const approvalResponseExampleTwo: ApprovalApiResponse = {
-  lateralName: '',
-  NavTransactionNew: [],
-  NavTransactionOld: [],
+  lateralName: 'Retail Growth',
+  productCode: 'PRD001',
+  statusActive: true,
+  NavTransactionOld: [
+    {
+      minimumAmount: 100000,
+      fee: 1.5,
+    },
+  ],
+  NavTransactionNew: [
+    {
+      minimumAmount: 150000,
+      fee: 1.2,
+    },
+  ],
 };
 
 export default function ApprovalDetailSectionExample(): React.JSX.Element {
   const data = useMemo<ApprovalApiResponse>(() => {
-    const selectedExample: 'exampleOne' | 'exampleTwo' = 'exampleOne';
+    const selectedExample: 'exampleOne' | 'exampleTwo' = 'exampleTwo';
     return selectedExample === 'exampleOne' ? approvalResponseExampleOne : approvalResponseExampleTwo;
   }, []);
 
