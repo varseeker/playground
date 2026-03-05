@@ -1,5 +1,5 @@
-import React, { memo, useMemo } from 'react';
-import { Card, Col, Divider, Empty, Row, Skeleton, Table, Typography } from 'antd';
+import React, { memo, useEffect, useMemo } from 'react';
+import { Card, Col, Divider, Empty, Form, Input, Row, Skeleton, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import ComparisonTableApproval from './ComparisonTableApproval';
 
@@ -17,7 +17,13 @@ export interface ApprovalDetailSectionProps<T extends GenericObject> {
 interface PrimitiveField {
   key: string;
   label: string;
-  value: PrimitiveValue;
+  mode: 'single' | 'compare';
+  value?: PrimitiveValue;
+  oldValue?: PrimitiveValue;
+  newValue?: PrimitiveValue;
+  oldFieldLabel?: string;
+  newFieldLabel?: string;
+  isChanged?: boolean;
 }
 
 interface TableSection {
@@ -96,7 +102,7 @@ function renderUnknownValue(value: unknown): React.ReactNode {
   return JSON.stringify(value);
 }
 
-function renderPrimitiveValue(value: PrimitiveValue): React.ReactNode {
+function primitiveToInputValue(value: PrimitiveValue): string {
   if (typeof value === 'boolean') {
     return value ? 'True' : 'False';
   }
@@ -106,6 +112,26 @@ function renderPrimitiveValue(value: PrimitiveValue): React.ReactNode {
   }
 
   return String(value);
+}
+
+function normalizeTestId(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function getSingleFieldName(field: PrimitiveField): string {
+  return `${field.key}-single`;
+}
+
+function getOldFieldName(field: PrimitiveField): string {
+  return `${field.key}-old`;
+}
+
+function getNewFieldName(field: PrimitiveField): string {
+  return `${field.key}-new`;
 }
 
 export function generateColumns<T extends GenericObject>(data: T[]): ColumnsType<T> {
@@ -196,7 +222,29 @@ function pushPrimitiveField(
   primitiveFields.push({
     key: fieldKey,
     label,
+    mode: 'single',
     value,
+  });
+}
+
+function pushComparedPrimitiveField(
+  primitiveFields: PrimitiveField[],
+  fieldKey: string,
+  label: string,
+  oldValue: PrimitiveValue,
+  newValue: PrimitiveValue,
+  oldFieldLabel: string,
+  newFieldLabel: string,
+): void {
+  primitiveFields.push({
+    key: fieldKey,
+    label,
+    mode: 'compare',
+    oldValue,
+    newValue,
+    oldFieldLabel,
+    newFieldLabel,
+    isChanged: !Object.is(oldValue, newValue),
   });
 }
 
@@ -288,6 +336,19 @@ function collectPairedObjectSections(
     const pathKey = `${basePath}.${subKey}`;
     const oldValue = oldObject[subKey];
     const newValue = newObject[subKey];
+
+    if (isPrimitive(oldValue) && isPrimitive(newValue)) {
+      pushComparedPrimitiveField(
+        primitiveFields,
+        pathKey,
+        formatLabel(subKey),
+        oldValue,
+        newValue,
+        `${formatLabel(subKey)} (Old)`,
+        `${formatLabel(subKey)} (New)`,
+      );
+      return;
+    }
 
     if (isPrimitive(newValue)) {
       pushPrimitiveField(primitiveFields, pathKey, formatLabel(subKey), newValue);
@@ -420,8 +481,61 @@ function ApprovalDetailSectionComponent<T extends GenericObject>({
   data,
   loading = false,
 }: ApprovalDetailSectionProps<T>): JSX.Element {
+  const [primitiveForm] = Form.useForm<Record<string, string>>();
   const { primitiveFields, listSections } = useMemo(() => buildSections(data), [data]);
+  const primitiveFormValues = useMemo<Record<string, string>>(() => {
+    const values: Record<string, string> = {};
+
+    primitiveFields.forEach((field) => {
+      if (field.mode === 'compare') {
+        const oldValue = field.oldValue;
+        const newValue = field.newValue;
+
+        if (oldValue !== undefined) {
+          values[getOldFieldName(field)] = primitiveToInputValue(oldValue);
+        }
+
+        if (newValue !== undefined) {
+          values[getNewFieldName(field)] = primitiveToInputValue(newValue);
+        }
+
+        if (!field.isChanged) {
+          const stableValue = newValue ?? oldValue;
+          if (stableValue !== undefined) {
+            values[getSingleFieldName(field)] = primitiveToInputValue(stableValue);
+          }
+        }
+
+        return;
+      }
+
+      if (field.value !== undefined) {
+        values[getSingleFieldName(field)] = primitiveToInputValue(field.value);
+      }
+    });
+
+    return values;
+  }, [primitiveFields]);
   const hasContent = primitiveFields.length > 0 || listSections.length > 0;
+
+  useEffect(() => {
+    primitiveForm.setFieldsValue(primitiveFormValues);
+  }, [primitiveForm, primitiveFormValues]);
+
+  const renderPrimitiveItem = (label: string, fieldName: string) => (
+    <Form.Item
+      labelCol={{ span: 7 }}
+      wrapperCol={{ span: 15 }}
+      label={label}
+      name={fieldName}
+      style={{ marginBottom: 12 }}
+    >
+      <Input
+        disabled
+        data-testid={`components-helper-dynamic-generic-render-index_input-text_${normalizeTestId(fieldName)}`}
+      />
+    </Form.Item>
+  );
 
   if (loading && !hasContent) {
     return (
@@ -442,14 +556,36 @@ function ApprovalDetailSectionComponent<T extends GenericObject>({
   return (
     <Card size="small" styles={{ body: { padding: 16 } }}>
       {primitiveFields.length > 0 && (
-        <Row gutter={[16, 12]}>
-          {primitiveFields.map((field) => (
-            <Col key={field.key} xs={24} md={12}>
-              <Text strong>{field.label}</Text>
-              <Text>{`: ${renderPrimitiveValue(field.value)}`}</Text>
-            </Col>
-          ))}
-        </Row>
+        <Form form={primitiveForm} layout="horizontal" preserve={false}>
+          {primitiveFields.map((field) => {
+            if (field.mode === 'compare' && field.isChanged) {
+              return (
+                <Row key={field.key} gutter={[16, 0]}>
+                  <Col xs={24} md={12}>
+                    {renderPrimitiveItem(
+                      field.oldFieldLabel ?? `${field.label} (Old)`,
+                      getOldFieldName(field),
+                    )}
+                  </Col>
+                  <Col xs={24} md={12}>
+                    {renderPrimitiveItem(
+                      field.newFieldLabel ?? `${field.label} (New)`,
+                      getNewFieldName(field),
+                    )}
+                  </Col>
+                </Row>
+              );
+            }
+
+            return (
+              <Row key={field.key} gutter={[16, 0]}>
+                <Col xs={24} md={12}>
+                  {renderPrimitiveItem(field.label, getSingleFieldName(field))}
+                </Col>
+              </Row>
+            );
+          })}
+        </Form>
       )}
 
       {primitiveFields.length > 0 && listSections.length > 0 && <Divider style={{ margin: '16px 0' }} />}
